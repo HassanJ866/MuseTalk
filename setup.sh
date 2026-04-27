@@ -228,9 +228,15 @@ dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json" \
 dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin" \
    "$MODELS_DIR/sd-vae/diffusion_pytorch_model.bin"
 
-echo "--- Downloading Whisper tiny ---"
-dl "https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt" \
-   "$MODELS_DIR/whisper/tiny.pt"
+echo "--- Downloading Whisper tiny (HuggingFace format for AutoFeatureExtractor) ---"
+# huggingface-cli was renamed to hf in huggingface_hub >= 1.12; fall back if needed
+HF_CLI="hf"
+command -v hf &>/dev/null || HF_CLI="huggingface-cli"
+$HF_CLI download openai/whisper-tiny \
+    --local-dir "$MODELS_DIR/whisper" \
+    --include "preprocessor_config.json" "config.json" "tokenizer_config.json" \
+              "vocab.json" "merges.txt" "normalizer.json" "added_tokens.json" \
+              "special_tokens_map.json" "pytorch_model.bin" "model.safetensors"
 
 echo ""
 echo "Setup complete."
