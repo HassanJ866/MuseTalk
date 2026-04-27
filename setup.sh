@@ -13,6 +13,10 @@ fi
 # --------------------------------------------------------------------------- #
 # 2. Python dependencies
 # --------------------------------------------------------------------------- #
+# torch/torchvision are skipped — Colab already has a working CUDA build.
+# Only install if they are genuinely absent (bare machine).
+python -c "import torch" 2>/dev/null || pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
 pip install -r requirements.txt
 
 # OpenMMLab stack (exact versions validated in notebook)
