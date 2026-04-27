@@ -62,13 +62,16 @@ def run_inference(config: dict, output_dir: str = "./results") -> None:
 
     try:
         os.chdir(musetalk_dir)
-        from scripts.inference import main as musetalk_main
         sys.argv = [
             "inference.py",
             "--inference_config", tmp_path,
             "--result_dir", output_dir_abs,
         ]
-        musetalk_main()
+        import runpy
+        runpy.run_path(
+            os.path.join(musetalk_dir, "scripts", "inference.py"),
+            run_name="__main__",
+        )
     finally:
         os.chdir(original_dir)
         os.unlink(tmp_path)
