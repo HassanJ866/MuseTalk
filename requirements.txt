@@ -8,7 +8,7 @@ diffusers
 huggingface_hub
 accelerate
 safetensors
-peft==0.10.0
+peft>=0.17.0
 
 # OpenMMLab — installed via mim in setup.sh (listed for reference only)
 # mmengine

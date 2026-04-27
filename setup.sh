@@ -30,7 +30,7 @@ pip install -q \
     huggingface_hub \
     accelerate \
     safetensors \
-    "peft==0.10.0" \
+    "peft>=0.17.0" \
     "opencv-python>=4.9.0" \
     Pillow \
     moviepy \
@@ -62,7 +62,7 @@ pip install -q "mmdet==3.1.0"
 pip install -q "mmpose==1.1.0"
 
 # Restore peft — mmdet/mmpose sometimes pull in a newer version
-pip install -q "peft==0.10.0"
+pip install -q "peft>=0.17.0"
 
 # --------------------------------------------------------------------------- #
 # 5. FFmpeg — use system binary on Colab, download static build otherwise
