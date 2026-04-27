@@ -33,6 +33,8 @@ pip install -q \
     "albumentations==1.4.20" \
     openai-whisper \
     face-alignment \
+    librosa \
+    einops \
     scipy \
     gradio \
     pyyaml \
