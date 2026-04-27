@@ -127,9 +127,14 @@ open(path, 'w').write(fixed)
 print("Rewrote:", path)
 PYEOF
 
-# mmcv-lite is the pure-Python mmcv variant (no CUDA op compilation).
-# mmpose only calls ops available in mmcv-lite for DWPose inference.
-pip install -q "mmcv-lite==2.0.1"
+# mmdet requires mmcv._ext (compiled CUDA ops) — mmcv-lite won't work.
+# Build mmcv from source using --no-build-isolation so pip uses the
+# already-installed modern setuptools instead of the ancient one bundled
+# in the mmcv sdist (which breaks on Python 3.12).
+export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
+export TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
+pip uninstall -y mmcv-lite mmcv 2>/dev/null || true
+pip install "mmcv==2.0.1" --no-build-isolation
 
 pip install -q "mmdet==3.1.0"
 pip install -q "mmpose==1.1.0"
