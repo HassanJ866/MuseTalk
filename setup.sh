@@ -55,40 +55,48 @@ echo "Installing OpenMMLab stack..."
 pip install -q "mmengine==0.10.5"
 
 # Patch mmengine's package_utils.py: pkg_resources uses pkgutil.ImpImporter
-# which was removed in Python 3.12. Replace with importlib.metadata.
-python - << 'PYEOF'
-import os, sys, textwrap
-import mmengine
+# which was removed in Python 3.12. Write a standalone patch script to a
+# temp file first — avoids all bash/heredoc indentation problems.
+cat > /tmp/patch_mmengine.py << 'ENDOFPATCH'
+import os, sys, re, mmengine
 
 path = os.path.join(os.path.dirname(mmengine.__file__), 'utils', 'package_utils.py')
 src = open(path).read()
-target = 'from pkg_resources import DistributionNotFound, get_distribution'
 
-# Remove any previous broken patch attempt first
-broken = 'try:\n    from pkg_resources import DistributionNotFound, get_distribution\nexcept Exception:'
-if broken in src:
-    src = src.replace(broken, target)
+# Nuke any previous broken/partial patch attempts entirely
+src = re.sub(
+    r'try:\s*\n[ \t]*(?:from pkg_resources[^\n]*)?\n(?:[ \t]+[^\n]*\n)*',
+    '',
+    src
+)
+src = re.sub(r'from pkg_resources import DistributionNotFound, get_distribution\n', '', src)
 
-if target not in src:
-    print("Already patched or target not found — skipping")
-    sys.exit(0)
+# Clean replacement — written as a raw string so indentation is exact
+patch = (
+    "try:\n"
+    "    from pkg_resources import DistributionNotFound, get_distribution\n"
+    "except Exception:\n"
+    "    from importlib.metadata import PackageNotFoundError as DistributionNotFound\n"
+    "    from importlib.metadata import distribution as _dist\n"
+    "    class get_distribution:\n"
+    "        def __init__(self, pkg):\n"
+    "            d = _dist(pkg)\n"
+    "            self.version = d.metadata['Version']\n"
+    "            self.location = ''\n"
+    "\n"
+)
 
-replacement = textwrap.dedent("""\
-    try:
-        from pkg_resources import DistributionNotFound, get_distribution
-    except Exception:
-        from importlib.metadata import PackageNotFoundError as DistributionNotFound
-        from importlib.metadata import distribution as _dist
-        class get_distribution:
-            def __init__(self, pkg):
-                d = _dist(pkg)
-                self.version = d.metadata["Version"]
-                self.location = ""
-""").rstrip()
-
-open(path, 'w').write(src.replace(target, replacement))
-print(f"Patched {path}")
-PYEOF
+# Insert after the last top-level import line
+lines = src.splitlines(keepends=True)
+insert = 0
+for i, line in enumerate(lines):
+    if re.match(r'^(import |from )\w', line):
+        insert = i + 1
+src = ''.join(lines[:insert]) + patch + ''.join(lines[insert:])
+open(path, 'w').write(src)
+print("Patched:", path)
+ENDOFPATCH
+python /tmp/patch_mmengine.py
 
 # mmcv-lite is the pure-Python mmcv variant (no CUDA op compilation).
 # mmpose only calls ops available in mmcv-lite for DWPose inference.
