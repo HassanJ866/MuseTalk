@@ -65,22 +65,31 @@ echo "Detected: $CUDA_TAG / $TORCH_TAG"
 
 pip install -q mmengine
 
-# OpenMMLab only publishes prebuilt mmcv wheels up to cu121.
-# For newer CUDA (e.g. cu128) we try cu121 wheels first (ABI-compatible at runtime),
-# then fall back to a source build via PyPI which compiles against the installed nvcc.
-MMCV_INDEX="https://download.openmmlab.com/mmcv/dist/${CUDA_TAG}/${TORCH_TAG}/index.html"
-MMCV_FALLBACK_INDEX="https://download.openmmlab.com/mmcv/dist/cu121/${TORCH_TAG}/index.html"
+# OpenMMLab prebuilt wheels only go up to cu121, and the PyPI sdist uses
+# distutils APIs removed in Python 3.12 (setup.py egg_info fails).
+# Solution: install the cu121/torch2.1 prebuilt wheel — it is ABI-compatible
+# at runtime with cu128, and works on Python 3.12 because it's a binary wheel.
+#
+# Wheel filename pattern: mmcv-{ver}-cp{py}-cp{py}-linux_x86_64.whl
+PY_TAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
+echo "Python tag: $PY_TAG"
 
-echo "Trying prebuilt mmcv wheel ($CUDA_TAG / $TORCH_TAG)..."
-if pip install -q "mmcv==2.1.0" -f "$MMCV_INDEX" 2>/dev/null; then
-    echo "Installed prebuilt mmcv 2.1.0"
-elif pip install -q "mmcv==2.1.0" -f "$MMCV_FALLBACK_INDEX" 2>/dev/null; then
-    echo "Installed mmcv 2.1.0 via cu121 fallback wheel"
-else
-    echo "No prebuilt wheel found — building mmcv from source (this takes ~5 min)..."
-    # Source build requires nvcc; Colab has it at /usr/local/cuda/bin/nvcc
+# Walk through known working (cuda, torch) combos from newest to oldest
+MMCV_INSTALLED=0
+for COMBO in "cu121/torch2.1" "cu118/torch2.1" "cu121/torch2.0" "cu118/torch2.0"; do
+    WHEEL_URL="https://download.openmmlab.com/mmcv/dist/${COMBO}/mmcv-2.1.0-${PY_TAG}-${PY_TAG}-manylinux1_x86_64.whl"
+    echo "Trying: $WHEEL_URL"
+    if pip install -q "$WHEEL_URL" 2>/dev/null; then
+        echo "Installed mmcv 2.1.0 from $COMBO wheel"
+        MMCV_INSTALLED=1
+        break
+    fi
+done
+
+if [ "$MMCV_INSTALLED" -eq 0 ]; then
+    echo "All prebuilt wheels failed — building mmcv from GitHub source (~5 min)..."
     export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
-    pip install -q "mmcv==2.1.0" --no-binary mmcv
+    pip install -q "git+https://github.com/open-mmlab/mmcv.git@v2.1.0"
 fi
 
 pip install -q "mmdet==3.1.0"
