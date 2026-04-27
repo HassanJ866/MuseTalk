@@ -178,6 +178,7 @@ fi
 MODELS_DIR="MuseTalk/models"
 mkdir -p \
     "$MODELS_DIR/musetalk" \
+    "$MODELS_DIR/musetalkV15" \
     "$MODELS_DIR/dwpose" \
     "$MODELS_DIR/face-parse-bisent" \
     "$MODELS_DIR/sd-vae" \
@@ -193,10 +194,18 @@ dl() {
 }
 
 echo "--- Downloading MuseTalk weights ---"
+# musetalk.json is the model config — the newer repo expects it as config.json
 dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/musetalk.json" \
    "$MODELS_DIR/musetalk/musetalk.json"
+# Also save as config.json which unet.py opens directly
+dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/musetalk.json" \
+   "$MODELS_DIR/musetalk/config.json"
 dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/pytorch_model.bin" \
    "$MODELS_DIR/musetalk/pytorch_model.bin"
+
+# The updated MuseTalk repo also looks for musetalkV15/unet.pth — symlink to the v1 weights
+ln -sfn "$(pwd)/$MODELS_DIR/musetalk/pytorch_model.bin" "$MODELS_DIR/musetalkV15/unet.pth"   2>/dev/null || true
+ln -sfn "$(pwd)/$MODELS_DIR/musetalk/config.json"       "$MODELS_DIR/musetalkV15/config.json" 2>/dev/null || true
 
 echo "--- Downloading DWPose ---"
 dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.pth" \
