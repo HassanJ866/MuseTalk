@@ -2,6 +2,7 @@
 # MuseTalk full environment + model setup
 # Tested on Colab (Python 3.12, torch 2.10+cu128).
 # Does NOT use mim/openmim — broken on Python 3.12 due to pkg_resources bug.
+# mmcv is built from source when no prebuilt wheel exists for the CUDA version.
 set -e
 
 # --------------------------------------------------------------------------- #
@@ -49,7 +50,6 @@ pip install -q \
 # --------------------------------------------------------------------------- #
 echo "Installing OpenMMLab stack..."
 
-# Auto-detect CUDA and torch tags for mmcv wheel URL
 CUDA_TAG=$(python -c "
 import torch
 v = torch.version.cuda or '11.8'
@@ -63,17 +63,25 @@ print('torch' + (m.group(1) if m else '2.0'))
 ")
 echo "Detected: $CUDA_TAG / $TORCH_TAG"
 
-MMCV_INDEX="https://download.openmmlab.com/mmcv/dist/${CUDA_TAG}/${TORCH_TAG}/index.html"
-echo "mmcv wheel index: $MMCV_INDEX"
-
 pip install -q mmengine
 
-# Try the prebuilt mmcv wheel for the detected torch+cuda combo.
-# mmcv 2.1.0 is the last release with torch 2.x wheels.
-pip install -q "mmcv==2.1.0" -f "$MMCV_INDEX" || {
-    echo "Prebuilt mmcv wheel not found for $CUDA_TAG/$TORCH_TAG, trying latest..."
-    pip install -q mmcv -f "$MMCV_INDEX"
-}
+# OpenMMLab only publishes prebuilt mmcv wheels up to cu121.
+# For newer CUDA (e.g. cu128) we try cu121 wheels first (ABI-compatible at runtime),
+# then fall back to a source build via PyPI which compiles against the installed nvcc.
+MMCV_INDEX="https://download.openmmlab.com/mmcv/dist/${CUDA_TAG}/${TORCH_TAG}/index.html"
+MMCV_FALLBACK_INDEX="https://download.openmmlab.com/mmcv/dist/cu121/${TORCH_TAG}/index.html"
+
+echo "Trying prebuilt mmcv wheel ($CUDA_TAG / $TORCH_TAG)..."
+if pip install -q "mmcv==2.1.0" -f "$MMCV_INDEX" 2>/dev/null; then
+    echo "Installed prebuilt mmcv 2.1.0"
+elif pip install -q "mmcv==2.1.0" -f "$MMCV_FALLBACK_INDEX" 2>/dev/null; then
+    echo "Installed mmcv 2.1.0 via cu121 fallback wheel"
+else
+    echo "No prebuilt wheel found — building mmcv from source (this takes ~5 min)..."
+    # Source build requires nvcc; Colab has it at /usr/local/cuda/bin/nvcc
+    export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
+    pip install -q "mmcv==2.1.0" --no-binary mmcv
+fi
 
 pip install -q "mmdet==3.1.0"
 pip install -q "mmpose==1.1.0"
