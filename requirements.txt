@@ -1,0 +1,41 @@
+# Core deep-learning stack (CUDA 11.8 wheels — change cu118 to match your CUDA)
+torch==2.0.1+cu118
+torchvision==0.15.2+cu118
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+# HuggingFace ecosystem
+transformers==4.39.2
+diffusers
+huggingface_hub
+accelerate
+safetensors
+peft==0.10.0
+
+# OpenMMLab (installed via mim in setup.sh, listed here for reference)
+# mmengine==0.10.5
+# mmcv==2.0.1
+# mmdet==3.1.0
+# mmpose==1.1.0
+
+# Vision & video
+opencv-python>=4.9.0
+Pillow
+moviepy
+imageio[ffmpeg]
+albumentations==1.4.20
+
+# Audio
+openai-whisper
+
+# Scientific computing
+numpy==1.23.5
+scipy
+
+# Web UI
+gradio
+
+# Utilities
+pyyaml
+tqdm
+gdown
+requests

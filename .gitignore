@@ -1,0 +1,31 @@
+# Model weights (large binaries — download via setup.sh)
+MuseTalk/models/
+models/
+
+# Generated outputs
+results/
+temp.mp4
+
+# FFmpeg static binary
+ffmpeg-4.4-amd64-static/
+ffmpeg.tar.xz
+
+# Environment
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Data (optional — remove these lines if you want to track sample data)
+data/video/
+data/audio/
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

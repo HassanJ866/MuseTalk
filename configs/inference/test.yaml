@@ -1,0 +1,14 @@
+# MuseTalk inference config
+# Each top-level key is an independent task.
+# bbox_shift: positive shifts mouth region down, negative shifts up.
+#             Run without it first; adjust only if the lip crop looks off.
+#             Valid range printed by inference script after landmark extraction.
+
+task_0:
+  video_path: data/video/yongen.mp4
+  audio_path: data/audio/yongen.wav
+
+task_1:
+  video_path: data/video/sun.mp4
+  audio_path: data/audio/sun.wav
+  bbox_shift: -7
