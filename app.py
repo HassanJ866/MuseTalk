@@ -30,9 +30,9 @@ import gradio as gr
 def _run_musetalk(video_path: str, audio_path: str, bbox_shift: int) -> str:
     """Run MuseTalk inference and return the path to the output video."""
     import yaml
-    from scripts.inference import main as musetalk_main
 
-    output_dir = os.path.join(os.path.dirname(__file__), "results", "output")
+    musetalk_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MuseTalk")
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "output")
     os.makedirs(output_dir, exist_ok=True)
 
     config = {
@@ -48,7 +48,10 @@ def _run_musetalk(video_path: str, audio_path: str, bbox_shift: int) -> str:
         tmp_path = tmp.name
 
     original_argv = sys.argv[:]
+    original_dir = os.getcwd()
     try:
+        os.chdir(musetalk_dir)
+        from scripts.inference import main as musetalk_main
         sys.argv = [
             "inference.py",
             "--inference_config", tmp_path,
@@ -56,6 +59,7 @@ def _run_musetalk(video_path: str, audio_path: str, bbox_shift: int) -> str:
         ]
         musetalk_main()
     finally:
+        os.chdir(original_dir)
         sys.argv = original_argv
         os.unlink(tmp_path)
 

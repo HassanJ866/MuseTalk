@@ -48,23 +48,29 @@ def load_yaml_config(path: str) -> dict:
 
 
 def run_inference(config: dict, output_dir: str = "./results") -> None:
-    from scripts.inference import main as musetalk_main  # noqa: F401
-
-    # musetalk's inference.py expects sys.argv, so we reconstruct it
     import tempfile, yaml
+
+    # MuseTalk uses relative paths anchored at the repo root (./musetalk/utils/dwpose/...).
+    # We must cd into the MuseTalk subdirectory before importing or running anything.
+    musetalk_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MuseTalk")
+    original_dir = os.getcwd()
+    output_dir_abs = os.path.abspath(output_dir)
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
         yaml.dump(config, tmp)
         tmp_path = tmp.name
 
     try:
+        os.chdir(musetalk_dir)
+        from scripts.inference import main as musetalk_main
         sys.argv = [
             "inference.py",
             "--inference_config", tmp_path,
-            "--result_dir", output_dir,
+            "--result_dir", output_dir_abs,
         ]
         musetalk_main()
     finally:
+        os.chdir(original_dir)
         os.unlink(tmp_path)
 
 
