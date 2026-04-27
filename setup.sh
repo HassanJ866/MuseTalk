@@ -127,19 +127,17 @@ open(path, 'w').write(fixed)
 print("Rewrote:", path)
 PYEOF
 
-# mmdet requires mmcv._ext (compiled CUDA ops) — mmcv-lite won't work.
-# Build mmcv from source using --no-build-isolation so pip uses the
-# already-installed modern setuptools instead of the ancient one bundled
-# in the mmcv sdist (which breaks on Python 3.12).
-export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
-export TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0"
-pip uninstall -y mmcv-lite mmcv 2>/dev/null || true
-pip install "mmcv==2.0.1" --no-build-isolation
+# Replace mmpose/mmdet/mmcv entirely with onnxruntime-based DWPose.
+# mmcv has no Python 3.12 wheels and its setup.py fails on Python 3.12.
+# onnxruntime runs the same DWPose ONNX weights with no compilation needed.
+pip uninstall -y mmcv-lite mmcv mmdet mmpose 2>/dev/null || true
+pip install -q onnxruntime-gpu
 
-pip install -q "mmdet==3.1.0"
-pip install -q "mmpose==1.1.0"
+# Copy our onnxruntime-based preprocessing.py over MuseTalk's mmpose version
+cp scripts/preprocessing.py MuseTalk/musetalk/utils/preprocessing.py
+echo "Patched MuseTalk/musetalk/utils/preprocessing.py"
 
-# Restore peft — mmdet/mmpose sometimes pull in a newer version
+# Restore peft
 pip install -q "peft>=0.17.0"
 
 # --------------------------------------------------------------------------- #
@@ -203,6 +201,10 @@ dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/pytorch_mod
 echo "--- Downloading DWPose ---"
 dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.pth" \
    "$MODELS_DIR/dwpose/dw-ll_ucoco_384.pth"
+dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.onnx" \
+   "$MODELS_DIR/dwpose/dw-ll_ucoco_384.onnx"
+dl "https://huggingface.co/yzd-v/DWPose/resolve/main/yolox_l.onnx" \
+   "$MODELS_DIR/dwpose/yolox_l.onnx"
 
 echo "--- Downloading face-parse-bisent ---"
 if [ ! -s "$MODELS_DIR/face-parse-bisent/79999_iter.pth" ]; then
