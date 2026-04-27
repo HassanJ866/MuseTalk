@@ -229,14 +229,38 @@ dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pyto
    "$MODELS_DIR/sd-vae/diffusion_pytorch_model.bin"
 
 echo "--- Downloading Whisper tiny (HuggingFace format for AutoFeatureExtractor) ---"
-# huggingface-cli was renamed to hf in huggingface_hub >= 1.12; fall back if needed
-HF_CLI="hf"
-command -v hf &>/dev/null || HF_CLI="huggingface-cli"
-$HF_CLI download openai/whisper-tiny \
-    --local-dir "$MODELS_DIR/whisper" \
-    --include "preprocessor_config.json" "config.json" "tokenizer_config.json" \
-              "vocab.json" "merges.txt" "normalizer.json" "added_tokens.json" \
-              "special_tokens_map.json" "pytorch_model.bin" "model.safetensors"
+python - << 'PYEOF'
+import os
+from huggingface_hub import hf_hub_download
+
+dest = os.path.join("MuseTalk", "models", "whisper")
+os.makedirs(dest, exist_ok=True)
+
+files = [
+    "preprocessor_config.json",
+    "config.json",
+    "tokenizer_config.json",
+    "vocab.json",
+    "merges.txt",
+    "normalizer.json",
+    "added_tokens.json",
+    "special_tokens_map.json",
+    "pytorch_model.bin",
+    "model.safetensors",
+]
+
+repo = "openai/whisper-tiny"
+for fname in files:
+    out = os.path.join(dest, fname)
+    if os.path.exists(out) and os.path.getsize(out) > 0:
+        print(f"Already exists: {out}")
+        continue
+    try:
+        hf_hub_download(repo_id=repo, filename=fname, local_dir=dest)
+        print(f"Downloaded: {fname}")
+    except Exception as e:
+        print(f"Skipped {fname}: {e}")
+PYEOF
 
 echo ""
 echo "Setup complete."
