@@ -1,17 +1,11 @@
 #!/usr/bin/env bash
 # MuseTalk full environment + model setup
 # Tested on Colab (Python 3.12, torch 2.10+cu128).
+# MuseTalk source is vendored in ./MuseTalk — no cloning needed.
 set -e
 
 # --------------------------------------------------------------------------- #
-# 1. Clone MuseTalk source
-# --------------------------------------------------------------------------- #
-if [ ! -d "MuseTalk" ]; then
-    git clone https://github.com/TMElyralab/MuseTalk.git
-fi
-
-# --------------------------------------------------------------------------- #
-# 2. torch/torchvision — use whatever Colab already has
+# 1. torch/torchvision — use whatever Colab already has
 # --------------------------------------------------------------------------- #
 python -c "import torch" 2>/dev/null || \
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
@@ -20,9 +14,8 @@ TORCH_VER=$(python -c "import torch; print(torch.__version__)")
 echo "Using torch $TORCH_VER"
 
 # --------------------------------------------------------------------------- #
-# 3. Core Python deps
-# numpy must be <2.0 — Colab 2025 ships numpy>=2 which breaks torch internals.
-# Force reinstall first so compiled extensions match.
+# 2. Core Python deps
+# numpy must be pinned to 1.26.4 — Colab ships numpy>=2 which breaks torch.
 # --------------------------------------------------------------------------- #
 pip install -q "numpy==1.26.4" --force-reinstall
 
@@ -46,18 +39,13 @@ pip install -q \
     tqdm \
     gdown \
     requests \
-    omegaconf
+    omegaconf \
+    onnxruntime-gpu
 
 # --------------------------------------------------------------------------- #
-# 4. OpenMMLab stack — replaced entirely by onnxruntime
-#    mmcv/mmdet/mmpose have no Python 3.12 wheels and broken setup.py.
-#    We use onnxruntime to run DWPose ONNX weights directly.
+# 3. mmengine — needed by some MuseTalk imports; patch for Python 3.12
 # --------------------------------------------------------------------------- #
-echo "Removing OpenMMLab stack (incompatible with Python 3.12)..."
-pip uninstall -y mmcv-lite mmcv mmdet mmpose mmengine 2>/dev/null || true
-pip install -q onnxruntime-gpu
-
-# Install mmengine alone (needed by some MuseTalk imports) and patch it
+pip uninstall -y mmcv-lite mmcv mmdet mmpose 2>/dev/null || true
 pip install -q "mmengine==0.10.5"
 
 python - << 'PYEOF'
@@ -130,44 +118,12 @@ open(path, 'w').write(fixed)
 print("Rewrote mmengine package_utils.py")
 PYEOF
 
-# Restore peft (mmengine install may downgrade it)
+# Restore peft after mmengine may downgrade it
 pip install -q "peft>=0.17.0"
 
 # --------------------------------------------------------------------------- #
-# 5. Patch MuseTalk source files
+# 4. Patch diffusers if it still uses the removed cached_download symbol
 # --------------------------------------------------------------------------- #
-
-# 5a. Replace mmpose-based preprocessing with our onnxruntime version
-cp scripts/preprocessing.py MuseTalk/musetalk/utils/preprocessing.py
-echo "Patched: musetalk/utils/preprocessing.py"
-
-# 5b. Fix torch.load calls — PyTorch 2.6 changed default to weights_only=True
-#     which breaks loading legacy .tar format weights (resnet18, face-parse)
-python - << 'PYEOF'
-import re, pathlib
-
-targets = [
-    "MuseTalk/musetalk/utils/face_parsing/resnet.py",
-    "MuseTalk/musetalk/utils/face_parsing/__init__.py",
-]
-
-pattern = re.compile(r'torch\.load\(([^,)]+)\)(?!\s*,\s*weights_only)')
-
-for p in targets:
-    path = pathlib.Path(p)
-    if not path.exists():
-        print(f"Not found, skipping: {p}")
-        continue
-    txt = path.read_text()
-    patched = pattern.sub(r'torch.load(\1, weights_only=False)', txt)
-    if patched != txt:
-        path.write_text(patched)
-        print(f"Patched torch.load: {p}")
-    else:
-        print(f"Already clean: {p}")
-PYEOF
-
-# 5c. Patch diffusers if it still uses the removed cached_download symbol
 DYNAMIC_UTILS=$(python -c "
 import diffusers, os
 p = os.path.join(os.path.dirname(diffusers.__file__), 'utils', 'dynamic_modules_utils.py')
@@ -179,7 +135,7 @@ if [ -n "$DYNAMIC_UTILS" ] && grep -q "cached_download" "$DYNAMIC_UTILS" 2>/dev/
 fi
 
 # --------------------------------------------------------------------------- #
-# 6. FFmpeg — use system binary on Colab, download static build otherwise
+# 5. FFmpeg
 # --------------------------------------------------------------------------- #
 if command -v ffmpeg &>/dev/null; then
     FFMPEG_PATH=$(dirname "$(command -v ffmpeg)")
@@ -198,7 +154,7 @@ fi
 echo "FFMPEG_PATH=$FFMPEG_PATH" > .env
 
 # --------------------------------------------------------------------------- #
-# 7. Download model weights
+# 6. Download model weights
 # --------------------------------------------------------------------------- #
 MODELS_DIR="MuseTalk/models"
 mkdir -p \
@@ -248,7 +204,7 @@ dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json" \
 dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin" \
    "$MODELS_DIR/sd-vae/diffusion_pytorch_model.bin"
 
-echo "--- Downloading Whisper tiny (HuggingFace model dir) ---"
+echo "--- Downloading Whisper tiny ---"
 python - << 'PYEOF'
 import os
 from huggingface_hub import hf_hub_download
@@ -257,16 +213,9 @@ dest = os.path.join("MuseTalk", "models", "whisper")
 os.makedirs(dest, exist_ok=True)
 
 files = [
-    "preprocessor_config.json",
-    "config.json",
-    "tokenizer_config.json",
-    "vocab.json",
-    "merges.txt",
-    "normalizer.json",
-    "added_tokens.json",
-    "special_tokens_map.json",
-    "pytorch_model.bin",
-    "model.safetensors",
+    "preprocessor_config.json", "config.json", "tokenizer_config.json",
+    "vocab.json", "merges.txt", "normalizer.json", "added_tokens.json",
+    "special_tokens_map.json", "pytorch_model.bin", "model.safetensors",
 ]
 
 for fname in files:
@@ -283,8 +232,9 @@ PYEOF
 
 echo ""
 echo "=========================================="
-echo "Setup complete. Runtime MUST be restarted"
-echo "before running inference (numpy reinstall)."
+echo "Setup complete!"
+echo "IMPORTANT: Restart the Colab runtime now"
+echo "(Runtime → Restart session) before running inference."
 echo "=========================================="
 echo "  Inference : python inference.py --video MuseTalk/data/video/yongen.mp4 --audio MuseTalk/data/audio/yongen.wav"
 echo "  Web UI    : python app.py --share"
