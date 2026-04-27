@@ -34,7 +34,7 @@ def get_landmark_and_bbox(img_list, upperbondrange=0):
 
     for frame in tqdm(frames):
         # get_landmarks returns list of (68,2) arrays, one per face; None entries for no face
-        lms = fa.get_landmarks(frame)
+        lms = fa.get_landmarks_from_image(frame)
         bbox = fa.get_detections_for_batch(np.asarray([frame]))
         f = bbox[0] if bbox is not None and len(bbox) > 0 else None
 
@@ -88,7 +88,7 @@ def get_bbox_range(img_list, upperbondrange=0):
     frames = read_imgs(img_list)
     average_range_minus, average_range_plus = [], []
     for frame in tqdm(frames):
-        lms = fa.get_landmarks(frame)
+        lms = fa.get_landmarks_from_image(frame)
         if lms is None or len(lms) == 0:
             continue
         face_land_mark = lms[0].astype(np.int32)
