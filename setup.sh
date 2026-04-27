@@ -46,16 +46,57 @@ pip install -q \
     requests
 
 # --------------------------------------------------------------------------- #
-# 4. OpenMMLab stack — installed via pip directly (no mim, broken on Py 3.12)
+# 4. OpenMMLab stack
+#    Python 3.12 removed pkgutil.ImpImporter which pkg_resources uses.
+#    We patch mmengine's package_utils.py to use importlib instead.
 # --------------------------------------------------------------------------- #
 echo "Installing OpenMMLab stack..."
 
-pip install -q mmengine
+pip install -q "mmengine==0.10.5"
 
-# mmcv has no prebuilt wheels for Python 3.12 and its setup.py uses APIs
-# removed in Python 3.12, so all install paths fail.
-# mmcv-lite is the pure-Python variant — no CUDA compilation, works on
-# Python 3.12, and provides all the ops MuseTalk actually needs.
+# Patch mmengine: replace pkg_resources usage with importlib equivalents.
+# This is the only call site that breaks on Python 3.12.
+PKG_UTILS=$(python -c "
+import mmengine, os
+p = os.path.join(os.path.dirname(mmengine.__file__), 'utils', 'package_utils.py')
+print(p)
+")
+echo "Patching $PKG_UTILS"
+python - <<'PYEOF'
+import re, sys
+
+path = __import__('mmengine').__file__
+import os
+path = os.path.join(os.path.dirname(path), 'utils', 'package_utils.py')
+
+src = open(path).read()
+
+# Replace the two pkg_resources-dependent functions with importlib equivalents
+old_block = '''from pkg_resources import DistributionNotFound, get_distribution'''
+if old_block not in src:
+    print("pkg_resources import not found — already patched or different version")
+    sys.exit(0)
+
+new_src = src.replace(
+    'from pkg_resources import DistributionNotFound, get_distribution',
+    '''try:
+    from pkg_resources import DistributionNotFound, get_distribution
+except Exception:
+    from importlib.metadata import PackageNotFoundError as DistributionNotFound
+    from importlib.metadata import distribution as _dist
+    def get_distribution(pkg):
+        class _D:
+            def __init__(self, d):
+                self.version = d.metadata["Version"]
+                self.location = str(d._path.parent) if hasattr(d, "_path") else ""
+        return _D(_dist(pkg))'''
+)
+open(path, 'w').write(new_src)
+print(f"Patched {path}")
+PYEOF
+
+# mmcv-lite is the pure-Python mmcv variant (no CUDA op compilation).
+# mmpose only calls ops available in mmcv-lite for DWPose inference.
 pip install -q "mmcv-lite==2.1.0"
 
 pip install -q "mmdet==3.1.0"
