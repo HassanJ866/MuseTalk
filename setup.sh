@@ -54,44 +54,39 @@ echo "Installing OpenMMLab stack..."
 
 pip install -q "mmengine==0.10.5"
 
-# Patch mmengine: replace pkg_resources usage with importlib equivalents.
-# This is the only call site that breaks on Python 3.12.
-PKG_UTILS=$(python -c "
-import mmengine, os
-p = os.path.join(os.path.dirname(mmengine.__file__), 'utils', 'package_utils.py')
-print(p)
-")
-echo "Patching $PKG_UTILS"
-python - <<'PYEOF'
-import re, sys
+# Patch mmengine's package_utils.py: pkg_resources uses pkgutil.ImpImporter
+# which was removed in Python 3.12. Replace with importlib.metadata.
+python - << 'PYEOF'
+import os, sys, textwrap
+import mmengine
 
-path = __import__('mmengine').__file__
-import os
-path = os.path.join(os.path.dirname(path), 'utils', 'package_utils.py')
-
+path = os.path.join(os.path.dirname(mmengine.__file__), 'utils', 'package_utils.py')
 src = open(path).read()
+target = 'from pkg_resources import DistributionNotFound, get_distribution'
 
-# Replace the two pkg_resources-dependent functions with importlib equivalents
-old_block = '''from pkg_resources import DistributionNotFound, get_distribution'''
-if old_block not in src:
-    print("pkg_resources import not found — already patched or different version")
+# Remove any previous broken patch attempt first
+broken = 'try:\n    from pkg_resources import DistributionNotFound, get_distribution\nexcept Exception:'
+if broken in src:
+    src = src.replace(broken, target)
+
+if target not in src:
+    print("Already patched or target not found — skipping")
     sys.exit(0)
 
-new_src = src.replace(
-    'from pkg_resources import DistributionNotFound, get_distribution',
-    '''try:
-    from pkg_resources import DistributionNotFound, get_distribution
-except Exception:
-    from importlib.metadata import PackageNotFoundError as DistributionNotFound
-    from importlib.metadata import distribution as _dist
-    def get_distribution(pkg):
-        class _D:
-            def __init__(self, d):
+replacement = textwrap.dedent("""\
+    try:
+        from pkg_resources import DistributionNotFound, get_distribution
+    except Exception:
+        from importlib.metadata import PackageNotFoundError as DistributionNotFound
+        from importlib.metadata import distribution as _dist
+        class get_distribution:
+            def __init__(self, pkg):
+                d = _dist(pkg)
                 self.version = d.metadata["Version"]
-                self.location = str(d._path.parent) if hasattr(d, "_path") else ""
-        return _D(_dist(pkg))'''
-)
-open(path, 'w').write(new_src)
+                self.location = ""
+""").rstrip()
+
+open(path, 'w').write(src.replace(target, replacement))
 print(f"Patched {path}")
 PYEOF
 
