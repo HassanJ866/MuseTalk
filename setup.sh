@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # MuseTalk full environment + model setup
 # Tested on Colab (Python 3.12, torch 2.10+cu128).
-# Does NOT use mim/openmim — broken on Python 3.12 due to pkg_resources bug.
-# mmcv is built from source when no prebuilt wheel exists for the CUDA version.
 set -e
 
 # --------------------------------------------------------------------------- #
@@ -23,11 +21,15 @@ echo "Using torch $TORCH_VER"
 
 # --------------------------------------------------------------------------- #
 # 3. Core Python deps
+# numpy must be <2.0 — Colab 2025 ships numpy>=2 which breaks torch internals.
+# Force reinstall first so compiled extensions match.
 # --------------------------------------------------------------------------- #
+pip install -q "numpy==1.26.4" --force-reinstall
+
 pip install -q \
     "transformers>=4.39.2" \
     diffusers \
-    huggingface_hub \
+    "huggingface_hub>=1.12.0" \
     accelerate \
     safetensors \
     "peft>=0.17.0" \
@@ -37,26 +39,27 @@ pip install -q \
     "imageio[ffmpeg]" \
     "albumentations==1.4.20" \
     openai-whisper \
-    "numpy<2.0" \
+    face-alignment \
     scipy \
     gradio \
     pyyaml \
     tqdm \
     gdown \
-    requests
+    requests \
+    omegaconf
 
 # --------------------------------------------------------------------------- #
-# 4. OpenMMLab stack
-#    Python 3.12 removed pkgutil.ImpImporter which pkg_resources uses.
-#    We patch mmengine's package_utils.py to use importlib instead.
+# 4. OpenMMLab stack — replaced entirely by onnxruntime
+#    mmcv/mmdet/mmpose have no Python 3.12 wheels and broken setup.py.
+#    We use onnxruntime to run DWPose ONNX weights directly.
 # --------------------------------------------------------------------------- #
-echo "Installing OpenMMLab stack..."
+echo "Removing OpenMMLab stack (incompatible with Python 3.12)..."
+pip uninstall -y mmcv-lite mmcv mmdet mmpose mmengine 2>/dev/null || true
+pip install -q onnxruntime-gpu
 
+# Install mmengine alone (needed by some MuseTalk imports) and patch it
 pip install -q "mmengine==0.10.5"
 
-# Completely rewrite mmengine's package_utils.py to remove all pkg_resources
-# usage. pkg_resources relies on pkgutil.ImpImporter, removed in Python 3.12.
-# We write the replacement to a temp file to avoid any bash quoting issues.
 python - << 'PYEOF'
 import mmengine, os, ast
 
@@ -122,49 +125,61 @@ fixed = (
     "        call_command(['python', '-m', 'pip', 'install', package])\n"
 )
 
-ast.parse(fixed)  # verify syntax before writing
+ast.parse(fixed)
 open(path, 'w').write(fixed)
-print("Rewrote:", path)
+print("Rewrote mmengine package_utils.py")
 PYEOF
 
-# Replace mmpose/mmdet/mmcv entirely with onnxruntime-based DWPose.
-# mmcv has no Python 3.12 wheels and its setup.py fails on Python 3.12.
-# onnxruntime runs the same DWPose ONNX weights with no compilation needed.
-pip uninstall -y mmcv-lite mmcv mmdet mmpose 2>/dev/null || true
-pip install -q onnxruntime-gpu
-
-# Copy our onnxruntime-based preprocessing.py over MuseTalk's mmpose version
-cp scripts/preprocessing.py MuseTalk/musetalk/utils/preprocessing.py
-echo "Patched MuseTalk/musetalk/utils/preprocessing.py"
-
-# PyTorch >= 2.6 changed torch.load default to weights_only=True, which breaks
-# loading legacy .tar format weights (resnet18). Patch resnet.py to add weights_only=False.
-python - << 'PYEOF'
-import re, pathlib
-
-path = pathlib.Path("MuseTalk/musetalk/utils/face_parsing/resnet.py")
-if path.exists():
-    txt = path.read_text()
-    # Replace torch.load(model_path) with weights_only=False variant
-    patched = re.sub(
-        r'torch\.load\(model_path\)',
-        'torch.load(model_path, weights_only=False)',
-        txt
-    )
-    if patched != txt:
-        path.write_text(patched)
-        print("Patched resnet.py: added weights_only=False to torch.load")
-    else:
-        print("resnet.py already patched or pattern not found")
-else:
-    print("resnet.py not found, skipping patch")
-PYEOF
-
-# Restore peft
+# Restore peft (mmengine install may downgrade it)
 pip install -q "peft>=0.17.0"
 
 # --------------------------------------------------------------------------- #
-# 5. FFmpeg — use system binary on Colab, download static build otherwise
+# 5. Patch MuseTalk source files
+# --------------------------------------------------------------------------- #
+
+# 5a. Replace mmpose-based preprocessing with our onnxruntime version
+cp scripts/preprocessing.py MuseTalk/musetalk/utils/preprocessing.py
+echo "Patched: musetalk/utils/preprocessing.py"
+
+# 5b. Fix torch.load calls — PyTorch 2.6 changed default to weights_only=True
+#     which breaks loading legacy .tar format weights (resnet18, face-parse)
+python - << 'PYEOF'
+import re, pathlib
+
+targets = [
+    "MuseTalk/musetalk/utils/face_parsing/resnet.py",
+    "MuseTalk/musetalk/utils/face_parsing/__init__.py",
+]
+
+pattern = re.compile(r'torch\.load\(([^,)]+)\)(?!\s*,\s*weights_only)')
+
+for p in targets:
+    path = pathlib.Path(p)
+    if not path.exists():
+        print(f"Not found, skipping: {p}")
+        continue
+    txt = path.read_text()
+    patched = pattern.sub(r'torch.load(\1, weights_only=False)', txt)
+    if patched != txt:
+        path.write_text(patched)
+        print(f"Patched torch.load: {p}")
+    else:
+        print(f"Already clean: {p}")
+PYEOF
+
+# 5c. Patch diffusers if it still uses the removed cached_download symbol
+DYNAMIC_UTILS=$(python -c "
+import diffusers, os
+p = os.path.join(os.path.dirname(diffusers.__file__), 'utils', 'dynamic_modules_utils.py')
+print(p if os.path.exists(p) else '')
+" 2>/dev/null || true)
+if [ -n "$DYNAMIC_UTILS" ] && grep -q "cached_download" "$DYNAMIC_UTILS" 2>/dev/null; then
+    sed -i 's/from huggingface_hub import cached_download, hf_hub_download, model_info/from huggingface_hub import hf_hub_download, model_info/' "$DYNAMIC_UTILS"
+    echo "Patched diffusers dynamic_modules_utils.py"
+fi
+
+# --------------------------------------------------------------------------- #
+# 6. FFmpeg — use system binary on Colab, download static build otherwise
 # --------------------------------------------------------------------------- #
 if command -v ffmpeg &>/dev/null; then
     FFMPEG_PATH=$(dirname "$(command -v ffmpeg)")
@@ -181,19 +196,6 @@ else
     export PATH="$FFMPEG_PATH:$PATH"
 fi
 echo "FFMPEG_PATH=$FFMPEG_PATH" > .env
-
-# --------------------------------------------------------------------------- #
-# 6. Patch diffusers if it still uses the removed cached_download symbol
-# --------------------------------------------------------------------------- #
-DYNAMIC_UTILS=$(python -c "
-import diffusers, os
-p = os.path.join(os.path.dirname(diffusers.__file__), 'utils', 'dynamic_modules_utils.py')
-print(p if os.path.exists(p) else '')
-" 2>/dev/null || true)
-if [ -n "$DYNAMIC_UTILS" ] && grep -q "cached_download" "$DYNAMIC_UTILS" 2>/dev/null; then
-    sed -i 's/from huggingface_hub import cached_download, hf_hub_download, model_info/from huggingface_hub import hf_hub_download, model_info/' "$DYNAMIC_UTILS"
-    echo "Patched $DYNAMIC_UTILS"
-fi
 
 # --------------------------------------------------------------------------- #
 # 7. Download model weights
@@ -217,22 +219,17 @@ dl() {
 }
 
 echo "--- Downloading MuseTalk weights ---"
-# musetalk.json is the model config — the newer repo expects it as config.json
 dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/musetalk.json" \
    "$MODELS_DIR/musetalk/musetalk.json"
-# Also save as config.json which unet.py opens directly
 dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/musetalk.json" \
    "$MODELS_DIR/musetalk/config.json"
 dl "https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalk/pytorch_model.bin" \
    "$MODELS_DIR/musetalk/pytorch_model.bin"
 
-# The updated MuseTalk repo also looks for musetalkV15/unet.pth — symlink to the v1 weights
 ln -sfn "$(pwd)/$MODELS_DIR/musetalk/pytorch_model.bin" "$MODELS_DIR/musetalkV15/unet.pth"   2>/dev/null || true
 ln -sfn "$(pwd)/$MODELS_DIR/musetalk/config.json"       "$MODELS_DIR/musetalkV15/config.json" 2>/dev/null || true
 
-echo "--- Downloading DWPose ---"
-dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.pth" \
-   "$MODELS_DIR/dwpose/dw-ll_ucoco_384.pth"
+echo "--- Downloading DWPose ONNX weights ---"
 dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.onnx" \
    "$MODELS_DIR/dwpose/dw-ll_ucoco_384.onnx"
 dl "https://huggingface.co/yzd-v/DWPose/resolve/main/yolox_l.onnx" \
@@ -251,7 +248,7 @@ dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json" \
 dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin" \
    "$MODELS_DIR/sd-vae/diffusion_pytorch_model.bin"
 
-echo "--- Downloading Whisper tiny (HuggingFace format for AutoFeatureExtractor) ---"
+echo "--- Downloading Whisper tiny (HuggingFace model dir) ---"
 python - << 'PYEOF'
 import os
 from huggingface_hub import hf_hub_download
@@ -272,20 +269,22 @@ files = [
     "model.safetensors",
 ]
 
-repo = "openai/whisper-tiny"
 for fname in files:
     out = os.path.join(dest, fname)
     if os.path.exists(out) and os.path.getsize(out) > 0:
         print(f"Already exists: {out}")
         continue
     try:
-        hf_hub_download(repo_id=repo, filename=fname, local_dir=dest)
+        hf_hub_download(repo_id="openai/whisper-tiny", filename=fname, local_dir=dest)
         print(f"Downloaded: {fname}")
     except Exception as e:
         print(f"Skipped {fname}: {e}")
 PYEOF
 
 echo ""
-echo "Setup complete."
-echo "  Inference : python inference.py --video data/video/your.mp4 --audio data/audio/your.wav"
+echo "=========================================="
+echo "Setup complete. Runtime MUST be restarted"
+echo "before running inference (numpy reinstall)."
+echo "=========================================="
+echo "  Inference : python inference.py --video MuseTalk/data/video/yongen.mp4 --audio MuseTalk/data/audio/yongen.wav"
 echo "  Web UI    : python app.py --share"
