@@ -66,6 +66,7 @@ def run_inference(config: dict, output_dir: str = "./results") -> None:
             "inference.py",
             "--inference_config", tmp_path,
             "--result_dir", output_dir_abs,
+            "--version", "v1",
         ]
         import runpy
         runpy.run_path(
