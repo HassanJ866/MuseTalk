@@ -180,11 +180,8 @@ mkdir -p \
     "$MODELS_DIR/musetalk" \
     "$MODELS_DIR/dwpose" \
     "$MODELS_DIR/face-parse-bisent" \
-    "$MODELS_DIR/sd-vae-ft-mse" \
+    "$MODELS_DIR/sd-vae" \
     "$MODELS_DIR/whisper"
-
-# MuseTalk loads the VAE from models/sd-vae — symlink to our downloaded copy
-ln -sfn "$(pwd)/$MODELS_DIR/sd-vae-ft-mse" "$MODELS_DIR/sd-vae" 2>/dev/null || true
 
 dl() {
     local url="$1" dest="$2"
@@ -218,9 +215,9 @@ dl "https://download.pytorch.org/models/resnet18-5c106cde.pth" \
 
 echo "--- Downloading Stable Diffusion VAE ---"
 dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json" \
-   "$MODELS_DIR/sd-vae-ft-mse/config.json"
+   "$MODELS_DIR/sd-vae/config.json"
 dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin" \
-   "$MODELS_DIR/sd-vae-ft-mse/diffusion_pytorch_model.bin"
+   "$MODELS_DIR/sd-vae/diffusion_pytorch_model.bin"
 
 echo "--- Downloading Whisper tiny ---"
 dl "https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt" \
