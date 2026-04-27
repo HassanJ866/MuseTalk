@@ -56,7 +56,7 @@ pip install -q mmengine
 # removed in Python 3.12, so all install paths fail.
 # mmcv-lite is the pure-Python variant — no CUDA compilation, works on
 # Python 3.12, and provides all the ops MuseTalk actually needs.
-pip install -q mmcv-lite
+pip install -q "mmcv-lite==2.1.0"
 
 pip install -q "mmdet==3.1.0"
 pip install -q "mmpose==1.1.0"
