@@ -18,7 +18,7 @@ _providers = (
 _det_session  = ort.InferenceSession("./models/dwpose/yolox_l.onnx",  providers=_providers)
 _pose_session = ort.InferenceSession("./models/dwpose/dw-ll_ucoco_384.onnx", providers=_providers)
 
-coord_placeholder = (0.0, 0.0, 0.0, 0.0)
+coord_placeholder = (0.0, 0.0, 0.0, 0.0)  # sentinel for "no face detected"
 
 fa = FaceAlignment(LandmarksType._2D, flip_input=False, device=device)
 
@@ -141,28 +141,30 @@ def get_landmark_and_bbox(img_list, upperbondrange=0):
             continue
         face_land_mark = kps[23:91].astype(np.int32)
         bbox = fa.get_detections_for_batch(np.asarray([frame]))
-        for f in bbox:
-            if f is None:
-                coords_list.append(coord_placeholder)
-                continue
-            half_face_coord = face_land_mark[29].copy()
-            range_minus = (face_land_mark[30] - face_land_mark[29])[1]
-            range_plus  = (face_land_mark[29] - face_land_mark[28])[1]
-            average_range_minus.append(range_minus)
-            average_range_plus.append(range_plus)
-            if upperbondrange != 0:
-                half_face_coord[1] = upperbondrange + half_face_coord[1]
-            half_face_dist = np.max(face_land_mark[:, 1]) - half_face_coord[1]
-            upper_bond = max(0, half_face_coord[1] - half_face_dist)
-            f_landmark = (
-                int(np.min(face_land_mark[:, 0])), int(upper_bond),
-                int(np.max(face_land_mark[:, 0])), int(np.max(face_land_mark[:, 1]))
-            )
-            x1, y1, x2, y2 = f_landmark
-            if y2 - y1 <= 0 or x2 - x1 <= 0 or x1 < 0:
-                coords_list.append(f)
-            else:
-                coords_list.append(f_landmark)
+        f = bbox[0] if bbox is not None and len(bbox) > 0 else None
+        if f is None:
+            coords_list.append(coord_placeholder)
+            continue
+        # f is a numpy array [x1, y1, x2, y2] from face_alignment
+        fa_x1, fa_y1, fa_x2, fa_y2 = int(f[0]), int(f[1]), int(f[2]), int(f[3])
+        half_face_coord = face_land_mark[29].copy()
+        range_minus = (face_land_mark[30] - face_land_mark[29])[1]
+        range_plus  = (face_land_mark[29] - face_land_mark[28])[1]
+        average_range_minus.append(range_minus)
+        average_range_plus.append(range_plus)
+        if upperbondrange != 0:
+            half_face_coord[1] = upperbondrange + half_face_coord[1]
+        half_face_dist = np.max(face_land_mark[:, 1]) - half_face_coord[1]
+        upper_bond = max(0, half_face_coord[1] - half_face_dist)
+        f_landmark = (
+            int(np.min(face_land_mark[:, 0])), int(upper_bond),
+            int(np.max(face_land_mark[:, 0])), int(np.max(face_land_mark[:, 1]))
+        )
+        x1, y1, x2, y2 = f_landmark
+        if y2 - y1 <= 0 or x2 - x1 <= 0 or x1 < 0:
+            coords_list.append((fa_x1, fa_y1, fa_x2, fa_y2))
+        else:
+            coords_list.append(f_landmark)
     n = len(frames)
     rm = int(sum(average_range_minus) / len(average_range_minus)) if average_range_minus else 0
     rp = int(sum(average_range_plus)  / len(average_range_plus))  if average_range_plus  else 0
