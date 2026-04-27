@@ -137,6 +137,29 @@ pip install -q onnxruntime-gpu
 cp scripts/preprocessing.py MuseTalk/musetalk/utils/preprocessing.py
 echo "Patched MuseTalk/musetalk/utils/preprocessing.py"
 
+# PyTorch >= 2.6 changed torch.load default to weights_only=True, which breaks
+# loading legacy .tar format weights (resnet18). Patch resnet.py to add weights_only=False.
+python - << 'PYEOF'
+import re, pathlib
+
+path = pathlib.Path("MuseTalk/musetalk/utils/face_parsing/resnet.py")
+if path.exists():
+    txt = path.read_text()
+    # Replace torch.load(model_path) with weights_only=False variant
+    patched = re.sub(
+        r'torch\.load\(model_path\)',
+        'torch.load(model_path, weights_only=False)',
+        txt
+    )
+    if patched != txt:
+        path.write_text(patched)
+        print("Patched resnet.py: added weights_only=False to torch.load")
+    else:
+        print("resnet.py already patched or pattern not found")
+else:
+    print("resnet.py not found, skipping patch")
+PYEOF
+
 # Restore peft
 pip install -q "peft>=0.17.0"
 
