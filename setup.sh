@@ -54,49 +54,78 @@ echo "Installing OpenMMLab stack..."
 
 pip install -q "mmengine==0.10.5"
 
-# Patch mmengine's package_utils.py: pkg_resources uses pkgutil.ImpImporter
-# which was removed in Python 3.12. Write a standalone patch script to a
-# temp file first — avoids all bash/heredoc indentation problems.
-cat > /tmp/patch_mmengine.py << 'ENDOFPATCH'
-import os, sys, re, mmengine
+# Completely rewrite mmengine's package_utils.py to remove all pkg_resources
+# usage. pkg_resources relies on pkgutil.ImpImporter, removed in Python 3.12.
+# We write the replacement to a temp file to avoid any bash quoting issues.
+python - << 'PYEOF'
+import mmengine, os, ast
 
 path = os.path.join(os.path.dirname(mmengine.__file__), 'utils', 'package_utils.py')
-src = open(path).read()
 
-# Nuke any previous broken/partial patch attempts entirely
-src = re.sub(
-    r'try:\s*\n[ \t]*(?:from pkg_resources[^\n]*)?\n(?:[ \t]+[^\n]*\n)*',
-    '',
-    src
-)
-src = re.sub(r'from pkg_resources import DistributionNotFound, get_distribution\n', '', src)
-
-# Clean replacement — written as a raw string so indentation is exact
-patch = (
-    "try:\n"
-    "    from pkg_resources import DistributionNotFound, get_distribution\n"
-    "except Exception:\n"
-    "    from importlib.metadata import PackageNotFoundError as DistributionNotFound\n"
-    "    from importlib.metadata import distribution as _dist\n"
-    "    class get_distribution:\n"
-    "        def __init__(self, pkg):\n"
-    "            d = _dist(pkg)\n"
-    "            self.version = d.metadata['Version']\n"
-    "            self.location = ''\n"
+fixed = (
+    "# Copyright (c) OpenMMLab. All rights reserved.\n"
+    "import importlib.util\n"
+    "import os.path as osp\n"
+    "import subprocess\n"
+    "from importlib.metadata import PackageNotFoundError as DistributionNotFound\n"
+    "from importlib.metadata import distribution as _dist\n"
     "\n"
+    "\n"
+    "def _get_dist(package):\n"
+    "    d = _dist(package)\n"
+    "    class _D:\n"
+    "        version = d.metadata['Version']\n"
+    "        location = str(list(d.files)[0].parent.parent) if d.files else ''\n"
+    "    return _D()\n"
+    "\n"
+    "\n"
+    "def is_installed(package: str) -> bool:\n"
+    "    try:\n"
+    "        _get_dist(package)\n"
+    "        return True\n"
+    "    except DistributionNotFound:\n"
+    "        spec = importlib.util.find_spec(package)\n"
+    "        return spec is not None and spec.origin is not None\n"
+    "\n"
+    "\n"
+    "def get_installed_path(package: str) -> str:\n"
+    "    try:\n"
+    "        pkg = _get_dist(package)\n"
+    "    except DistributionNotFound as e:\n"
+    "        spec = importlib.util.find_spec(package)\n"
+    "        if spec is not None and spec.origin is not None:\n"
+    "            return osp.dirname(spec.origin)\n"
+    "        raise e\n"
+    "    possible_path = osp.join(pkg.location, package)\n"
+    "    if osp.exists(possible_path):\n"
+    "        return possible_path\n"
+    "    return osp.join(pkg.location, package2module(package))\n"
+    "\n"
+    "\n"
+    "def package2module(package: str):\n"
+    "    d = _dist(package)\n"
+    "    txt = d.read_text('top_level.txt')\n"
+    "    if txt:\n"
+    "        return txt.split('\\n')[0]\n"
+    "    raise ValueError(f'can not infer the module name of {package}')\n"
+    "\n"
+    "\n"
+    "def call_command(cmd: list) -> None:\n"
+    "    try:\n"
+    "        subprocess.check_call(cmd)\n"
+    "    except Exception as e:\n"
+    "        raise e\n"
+    "\n"
+    "\n"
+    "def install_package(package: str):\n"
+    "    if not is_installed(package):\n"
+    "        call_command(['python', '-m', 'pip', 'install', package])\n"
 )
 
-# Insert after the last top-level import line
-lines = src.splitlines(keepends=True)
-insert = 0
-for i, line in enumerate(lines):
-    if re.match(r'^(import |from )\w', line):
-        insert = i + 1
-src = ''.join(lines[:insert]) + patch + ''.join(lines[insert:])
-open(path, 'w').write(src)
-print("Patched:", path)
-ENDOFPATCH
-python /tmp/patch_mmengine.py
+ast.parse(fixed)  # verify syntax before writing
+open(path, 'w').write(fixed)
+print("Rewrote:", path)
+PYEOF
 
 # mmcv-lite is the pure-Python mmcv variant (no CUDA op compilation).
 # mmpose only calls ops available in mmcv-lite for DWPose inference.
