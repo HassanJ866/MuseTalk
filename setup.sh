@@ -183,6 +183,9 @@ mkdir -p \
     "$MODELS_DIR/sd-vae-ft-mse" \
     "$MODELS_DIR/whisper"
 
+# MuseTalk loads the VAE from models/sd-vae — symlink to our downloaded copy
+ln -sfn "$(pwd)/$MODELS_DIR/sd-vae-ft-mse" "$MODELS_DIR/sd-vae" 2>/dev/null || true
+
 dl() {
     local url="$1" dest="$2"
     if [ -s "$dest" ]; then
