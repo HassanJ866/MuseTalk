@@ -50,47 +50,13 @@ pip install -q \
 # --------------------------------------------------------------------------- #
 echo "Installing OpenMMLab stack..."
 
-CUDA_TAG=$(python -c "
-import torch
-v = torch.version.cuda or '11.8'
-major, minor = v.split('.')[:2]
-print(f'cu{major}{minor}')
-")
-TORCH_TAG=$(python -c "
-import torch, re
-m = re.match(r'(\d+\.\d+)', torch.__version__)
-print('torch' + (m.group(1) if m else '2.0'))
-")
-echo "Detected: $CUDA_TAG / $TORCH_TAG"
-
 pip install -q mmengine
 
-# OpenMMLab prebuilt wheels only go up to cu121, and the PyPI sdist uses
-# distutils APIs removed in Python 3.12 (setup.py egg_info fails).
-# Solution: install the cu121/torch2.1 prebuilt wheel — it is ABI-compatible
-# at runtime with cu128, and works on Python 3.12 because it's a binary wheel.
-#
-# Wheel filename pattern: mmcv-{ver}-cp{py}-cp{py}-linux_x86_64.whl
-PY_TAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
-echo "Python tag: $PY_TAG"
-
-# Walk through known working (cuda, torch) combos from newest to oldest
-MMCV_INSTALLED=0
-for COMBO in "cu121/torch2.1" "cu118/torch2.1" "cu121/torch2.0" "cu118/torch2.0"; do
-    WHEEL_URL="https://download.openmmlab.com/mmcv/dist/${COMBO}/mmcv-2.1.0-${PY_TAG}-${PY_TAG}-manylinux1_x86_64.whl"
-    echo "Trying: $WHEEL_URL"
-    if pip install -q "$WHEEL_URL" 2>/dev/null; then
-        echo "Installed mmcv 2.1.0 from $COMBO wheel"
-        MMCV_INSTALLED=1
-        break
-    fi
-done
-
-if [ "$MMCV_INSTALLED" -eq 0 ]; then
-    echo "All prebuilt wheels failed — building mmcv from GitHub source (~5 min)..."
-    export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
-    pip install -q "git+https://github.com/open-mmlab/mmcv.git@v2.1.0"
-fi
+# mmcv has no prebuilt wheels for Python 3.12 and its setup.py uses APIs
+# removed in Python 3.12, so all install paths fail.
+# mmcv-lite is the pure-Python variant — no CUDA compilation, works on
+# Python 3.12, and provides all the ops MuseTalk actually needs.
+pip install -q mmcv-lite
 
 pip install -q "mmdet==3.1.0"
 pip install -q "mmpose==1.1.0"
