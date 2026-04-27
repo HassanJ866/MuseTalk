@@ -129,7 +129,7 @@ PYEOF
 
 # mmcv-lite is the pure-Python mmcv variant (no CUDA op compilation).
 # mmpose only calls ops available in mmcv-lite for DWPose inference.
-pip install -q "mmcv-lite==2.1.0"
+pip install -q "mmcv-lite==2.0.1"
 
 pip install -q "mmdet==3.1.0"
 pip install -q "mmpose==1.1.0"
