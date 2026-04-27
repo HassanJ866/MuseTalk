@@ -1,5 +1,5 @@
-# torch/torchvision are NOT pinned here — Colab pre-installs a compatible version.
-# If running outside Colab on a bare machine, install manually first:
+# torch/torchvision are NOT listed here — Colab pre-installs a compatible build.
+# On a bare machine, install manually before running setup.sh:
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 # HuggingFace ecosystem
@@ -10,9 +10,9 @@ accelerate
 safetensors
 peft==0.10.0
 
-# OpenMMLab (installed via mim in setup.sh, listed here for reference)
-# mmengine==0.10.5
-# mmcv==2.0.1
+# OpenMMLab — installed via mim in setup.sh (listed for reference only)
+# mmengine
+# mmcv==2.1.0
 # mmdet==3.1.0
 # mmpose==1.1.0
 
